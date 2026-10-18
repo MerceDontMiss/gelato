@@ -1,5 +1,8 @@
 // Fixed route table: callers cannot supply URLs or choose arbitrary HTTP operations.
 export const definitions = [
+  ['gelato_get_template', 'Read a dashboard-created template, variant IDs, product UIDs and artwork placeholders. Does not read Etsy SKUs.', { templateId: 'id' }, a => ['GET', `https://ecommerce.gelatoapis.com/v1/templates/${encodeURIComponent(a.templateId)}`]],
+  ['gelato_list_store_products', 'List products in a known connected store. Does not connect a store or link an existing Etsy listing.', { storeId: 'id', limit: 'limit', offset: 'offset' }, ({ storeId, ...query }) => ['GET', `https://ecommerce.gelatoapis.com/v1/stores/${encodeURIComponent(storeId)}/products`, undefined, query]],
+  ['gelato_get_store_product', 'Read store/external product and variant IDs, productUid and connectionStatus. No documented SKU field; no fulfillment guarantee.', { storeId: 'id', productId: 'id' }, a => ['GET', `https://ecommerce.gelatoapis.com/v1/stores/${encodeURIComponent(a.storeId)}/products/${encodeURIComponent(a.productId)}`]],
   ['gelato_list_catalogs', 'List Gelato manufacturing catalogs.', {}, () => ['GET', 'https://product.gelatoapis.com/v3/catalogs']],
   ['gelato_get_catalog', 'Get catalog attributes; use returned IDs for product filters.', { catalogUid: 'id' }, a => ['GET', `https://product.gelatoapis.com/v3/catalogs/${encodeURIComponent(a.catalogUid)}`]],
   ['gelato_search_products', 'Search a manufacturing catalog. POST is a read-only search, not a product creation.', { catalogUid: 'id', attributeFilters: 'filters', limit: 'limit', offset: 'offset' }, ({ catalogUid, ...body }) => ['POST', `https://product.gelatoapis.com/v3/catalogs/${encodeURIComponent(catalogUid)}/products:search`, body]],

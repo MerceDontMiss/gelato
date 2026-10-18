@@ -8,8 +8,8 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
-    "check": "node --check server.js && node --check gelato.js && node --check test/server.test.js",
-    "test": "node --test"
+    "check": "node --check server.js && node --check gelato.js && node --check ecommerce.js && node --check test/server.test.js && node --check test/ecommerce.test.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
