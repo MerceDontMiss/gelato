@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: gelato-readonly-mcp
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GELATO_API_KEY
+        sync: false
+      - key: MCP_BEARER_TOKEN
+        sync: false
+      - key: ENABLE_GELATO_WRITES
+        value: "false"
+      - key: GELATO_STORE_IDS
+        sync: false
+      - key: ARTWORK_HOSTS
+        sync: false
