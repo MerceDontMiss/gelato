@@ -5,6 +5,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { definitions, requestGelato } from './gelato.js';
+import { isAbsolute } from 'node:path';
+import { Journal, createShape, createProductHandler } from './ecommerce.js';
 
 export function loadConfig(env = process.env) {
   const apiKey = env.GELATO_API_KEY?.trim(); const token = env.MCP_BEARER_TOKEN?.trim();
@@ -14,7 +16,14 @@ export function loadConfig(env = process.env) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
   const hosts = (env.ALLOWED_HOSTS || 'localhost,127.0.0.1').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
   if (env.RENDER_EXTERNAL_HOSTNAME) hosts.push(env.RENDER_EXTERNAL_HOSTNAME.toLowerCase());
-  return { apiKey, token, port, hosts, origins: (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean) };
+  if (env.ENABLE_GELATO_WRITES && !['true', 'false'].includes(env.ENABLE_GELATO_WRITES)) throw new Error('ENABLE_GELATO_WRITES must be true or false.');
+  const writesEnabled = env.ENABLE_GELATO_WRITES === 'true';
+  const storeIds = (env.GELATO_STORE_IDS || '').split(',').map(x => x.trim()).filter(Boolean);
+  const artworkHosts = (env.ARTWORK_HOSTS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  if (artworkHosts.some(x => !/^[a-z0-9]+(?:[a-z0-9.-]*[a-z0-9])?$/.test(x) || x === 'localhost' || /^[0-9.]+$/.test(x) || !x.includes('.'))) throw new Error('ARTWORK_HOSTS requires exact public DNS hostnames.');
+  const idempotencyDir = env.IDEMPOTENCY_DIR;
+  if (writesEnabled && (!idempotencyDir || !isAbsolute(idempotencyDir) || !storeIds.length || !artworkHosts.length)) throw new Error('Live writes require absolute persistent IDEMPOTENCY_DIR, GELATO_STORE_IDS and ARTWORK_HOSTS.');
+  return { apiKey, token, port, hosts, writesEnabled, storeIds, artworkHosts, idempotencyDir, origins: (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean) };
 }
 const id = z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/);
 const country = z.string().regex(/^[A-Z]{2}$/); const currency = z.string().regex(/^[A-Z]{3}$/);
@@ -26,6 +35,8 @@ const schemas = {
   products: z.array(z.object({ productUid: id, quantities: z.array(z.number().int().min(1).max(1000000)).min(1).max(20), pageCount: z.number().int().min(1).max(10000).optional() }).strict()).min(1).max(20)
 };
 export function createApp(config, fetchImpl = fetch) {
+  const journal = config.writesEnabled ? new Journal(config.idempotencyDir) : undefined;
+  const createProduct = createProductHandler(config, fetchImpl, journal);
   const app = express(); app.disable('x-powered-by');
   app.use((req, res, next) => { res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); next(); });
   app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'gelato-readonly-mcp' }));
@@ -62,6 +73,14 @@ export function createApp(config, fetchImpl = fetch) {
         }
       });
     }
+    server.registerTool('gelato_create_product_from_template', {
+      description: 'Preflight by default (dryRun=true). Live creation requires server write enablement, confirmCreate=true, preflightHash and stable idempotencyKey. May start store publishing work. Never links existing Etsy listings. No pricing or QA approval implied.',
+      inputSchema: createShape,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+    }, async args => {
+      try { return { content: [{ type: 'text', text: JSON.stringify(await createProduct(args)) }] }; }
+      catch (error) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ code: error.code || 'INVALID_INPUT', message: error instanceof Error && error.code ? error.message : 'Invalid arguments or unavailable local journal.' }) }] }; }
+    });
     try { await server.connect(transport); await transport.handleRequest(req, res, req.body); }
     catch { if (!res.headersSent) res.status(500).json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Internal MCP error' } }); }
   });
